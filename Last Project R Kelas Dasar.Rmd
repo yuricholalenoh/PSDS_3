@@ -1,0 +1,227 @@
+---
+title: "Total Stock Produk Blackmores Berdasarkan Keyword"
+author: "Yuricho Lalenoh"
+date: "1/14/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Latar Belakang Dataset
+
+Blackmores adalah perusahaan kesehatan berasal dari Australia. Berdasarkan visi misi pendiri Balckmores yaitu, Maurice Blackmores (1906-1977), Blackmores antusias mengenai kesehatan alami dan ingin menginspirasi orang untuk menjaga kesehatan mereka. Blackomores sendiri mengembangkan produk dan layanan yang berkualitas untuk memberikan perawatan kesehatan yang lebih alami, dengan menggunakan keahlian & pengalaman kami dalam vitamin, mineral, herbal, dan nutrisi.
+
+Dataset Blackmores Product on E-Commerse in Indonesia ini menyajikan data tentang harga dari produk-produk Blackmores dimasing-masing online shop, jumlah stok masing-masing produk, nama online shop yang menyediakan produk Blackmores, hingga rating produk pada tiap online shop.
+
+Dataset ini dibuat untuk membantu perusahaan agar bisa menentukan produk mana yang terlaris atau paling banyak diminati pada E-Commerse di Indonesia, serta bisa juga menyortir produk-produk yang akan ditambahkan atau didistribusikan dari perusahaan Blackmores kepada online shop yang telah kekurangan produk Blackmores.
+
+## Pertanyaan Analisis
+
+Berapakah totalan stock produk blackmores jika dikelompokkan berdasarkan keyword yang ada ?
+
+## EDA (Exploratory Data Analysis)
+
+### Import Library
+
+```{r}
+library(heatmaply)
+library(visdat)
+library(reshape2)
+library(tidyr)
+library(ggplot2)
+library(psych)
+library(DataExplorer)
+```
+### Mengakses Dataset
+
+```{r}
+df_blackmores <- read.csv("C:/Users/Yuriko/Downloads/archive (5)/BlackmoresTokopedia.csv", stringsAsFactors=TRUE)
+
+df_blackmores[df_blackmores==""]<-NA
+df_blackmores[0:10,]
+head(df_blackmores)
+```
+
+### Dimensi Data
+
+```{r}
+dim(df_blackmores)
+```
+
+### Variabel Pada Dataset
+
+```{r}
+names(df_blackmores)
+str(df_blackmores)
+```
+
+### Mengecek Missing Data
+
+```{r}
+sapply(df_blackmores, function(x) sum(is.na(x)))
+
+heatmaply_na(
+  df_blackmores[1:20,],
+  showticklabels = c(TRUE, FALSE)
+)
+
+vis_miss(df_blackmores)
+```
+
+### Mengecek Outlier
+
+```{r}
+num_cols <- unlist(lapply(df_blackmores, is.numeric))
+blackmores_num <- df_blackmores[ , num_cols]
+boxplot(blackmores_num)
+```
+
+### Melihat Korelasi Data
+
+```{r}
+plot_correlation(blackmores_num)
+```
+
+### Melihat Statistik Data
+
+```{r}
+summary(df_blackmores)
+```
+
+### Plot Distribusi Data Numerik
+
+```{r}
+k <- melt(blackmores_num)
+ggplot(k, aes(x = value)) + facet_wrap(~variable, scales = "free_x") + geom_histogram()
+```
+
+### Pairplot
+
+```{r}
+pairs.panels(blackmores_num,
+             method = "pearson",
+             hist.col = "red",
+             density = TRUE,
+             ellipses = TRUE)
+```
+
+## Data Preparation
+
+### Seleksi Kolom
+
+```{r}
+df_blackmores = subset(df_blackmores, select = -c(price,rating,shop.is_gold,shop.is_official,shop.is_power_badge) )
+head(df_blackmores)
+```
+
+### Mengisi NaN
+
+```{r}
+#Mengisi NA pada kolom shop.city dengan Jakarta
+df_blackmores=df_blackmores %>% replace_na(list(shop.city = "Jakarta"))
+
+#Mengecek apakah NA sudah terganti
+sapply(df_blackmores, function(x) sum(is.na(x)))
+
+head(df_blackmores)
+```
+
+### Melakukan Pengkodean (Encoding)
+
+```{r}
+df_blackmores$keyword <- unclass(df_blackmores$keyword)
+df_blackmores$name <- unclass(df_blackmores$name)
+df_blackmores$shop.city <- unclass(df_blackmores$shop.city)
+df_blackmores$shop.name <- unclass(df_blackmores$shop.name)
+head(df_blackmores)
+```
+
+### Menghapus Outlier
+
+```{r}
+is_outlier <- function(x, na.rm = FALSE) {
+  qs = quantile(x, probs = c(0.25, 0.75), na.rm = na.rm)
+  
+  lowerq <- qs[1]
+  upperq <- qs[2]
+  iqr = upperq - lowerq
+  
+  extreme.threshold.upper = (iqr * 3) + upperq
+  extreme.threshold.lower = lowerq - (iqr * 3)
+  
+  x > extreme.threshold.upper | x < extreme.threshold.lower
+}
+
+remove_outliers <- function(df_blackmores, cols = names(df_blackmores)) {
+  for(col in cols) {
+    cat("Removing outlier in column:", col, "\n")
+    df_blackmores <- df_blackmores[!is_outlier(df_blackmores[[col]]),]
+  }
+  df_blackmores
+}
+
+vars_of_interest <- c("price_int")
+
+blackmores_filtered  <- remove_outliers(df_blackmores, vars_of_interest)
+
+boxplot(blackmores_filtered)
+```
+
+### Normalisasi Data
+
+```{r}
+unit_length <- function(x) {x / sqrt(sum(x^2))}
+
+unit_length_df_blackmores <- as.data.frame(lapply(df_blackmores, unit_length))
+
+head(unit_length_df_blackmores)
+```
+
+### Memilih Variable Target & Variable Independent
+
+```{r}
+y = df_blackmores$stock
+x = data.matrix(df_blackmores[-c(2)])
+
+y
+x
+```
+
+### Membagi Data Menjadi Data Training dan Data Testing
+
+```{r}
+library(dplyr)
+library(caTools)
+set.seed(123)
+
+split = sample.split(df_blackmores, SplitRatio = 0.8)
+
+training_set = subset(df_blackmores, split == TRUE)
+test_set = subset(df_blackmores, split == FALSE)
+
+split
+```
+
+## Data Visualization
+
+```{r}
+#Memanggil dataset
+df_blackmores <- read.csv("C:/Users/Yuriko/Downloads/archive (5)/BlackmoresTokopedia.csv", stringsAsFactors=TRUE)
+
+#Membuat visualisasi data
+library(plotly)
+fig <- plot_ly(df_blackmores,
+               x=~keyword,
+               y=~`stock`,
+               type = "bar",
+               name = "Stock")
+
+fig <- fig %>% layout(
+  title = "Stock Produk Blackmores",
+  xaxis = list(title= "Nama Produk"),
+  yaxis = list(title = "Stock"))
+
+fig
+```
